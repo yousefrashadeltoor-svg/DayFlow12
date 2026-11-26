@@ -133,9 +133,24 @@ jobs:
             echo "===== Project $BUILD_INDEX: $PROJECT_ROOT =====" | tee -a "$LOG"
             APP_ROOT="$(dirname "$PROJECT_ROOT")"
             DECOR_GALLERY="$APP_ROOT/src/features/decor/DecorGallery.tsx"
-            if [ -f "$DECOR_GALLERY" ] && grep -qF "import { Orn, Particles, HangingOrnaments } from './Decor';" "$DECOR_GALLERY"; then
-              sed -i "s/import { Orn, Particles, HangingOrnaments } from .\/Decor.;/import { Orn, Particles } from .\/Decor.;/" "$DECOR_GALLERY"
-              echo "Applied no-UI TypeScript cleanup: removed unused HangingOrnaments import." | tee -a "$LOG"
+            if [ -f "$DECOR_GALLERY" ]; then
+              python3 - "$DECOR_GALLERY" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text(encoding="utf-8")
+old = "import { Orn, Particles, HangingOrnaments } from './Decor';"
+new = "import { Orn, Particles } from './Decor';"
+if s.count(old) == 1:
+    p.write_text(s.replace(old, new), encoding="utf-8")
+    print("PATCH_APPLIED: removed unused HangingOrnaments import without UI changes")
+elif new in s:
+    print("PATCH_ALREADY_PRESENT: unused import is already removed")
+else:
+    raise SystemExit("PATCH_FAILED: expected exact import line was not found exactly once")
+PY
+              PATCH_RESULT=$?
+              if [ "$PATCH_RESULT" -ne 0 ]; then BUILD_FAILURES=$((BUILD_FAILURES + 1)); fi
             fi
             if [ -f "$APP_ROOT/package.json" ]; then
             if [ -f "$APP_ROOT/package.json" ]; then
