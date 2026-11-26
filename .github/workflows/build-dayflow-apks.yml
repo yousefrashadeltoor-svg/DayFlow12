@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build:
-    name: Build \${{ matrix.label }}
+    name: Build ${{ matrix.label }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
     strategy:
@@ -53,9 +53,9 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          ARCHIVE="\${{ matrix.archive }}"
+          ARCHIVE="${{ matrix.archive }}"
           SRC="$RUNNER_TEMP/dayflow-source"
-          OUT="$GITHUB_WORKSPACE/output/\${{ matrix.label }}"
+          OUT="$GITHUB_WORKSPACE/output/${{ matrix.label }}"
           mkdir -p "$SRC" "$OUT"
           if [ ! -f "$GITHUB_WORKSPACE/$ARCHIVE" ]; then
             echo "Archive not found: $ARCHIVE" | tee "$OUT/inspection.txt"
@@ -77,11 +77,11 @@ jobs:
           } | tee "$OUT/inspection.txt"
 
           mapfile -t ROOTS < <(find "$SRC" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -printf '%h\n' | sort -u)
-          if [ "\${#ROOTS[@]}" -eq 0 ]; then
+          if [ "${#ROOTS[@]}" -eq 0 ]; then
             mapfile -t ROOTS < <(find "$SRC" -type f \( -name build.gradle -o -name build.gradle.kts \) -printf '%h\n' | sort -u)
           fi
-          printf '%s\n' "\${ROOTS[@]}" > "$OUT/project-roots.txt"
-          if [ "\${#ROOTS[@]}" -gt 0 ]; then
+          printf '%s\n' "${ROOTS[@]}" > "$OUT/project-roots.txt"
+          if [ "${#ROOTS[@]}" -gt 0 ]; then
             echo "project_found=true" >> "$GITHUB_OUTPUT"
           else
             echo "project_found=false" >> "$GITHUB_OUTPUT"
@@ -92,7 +92,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          OUT="$GITHUB_WORKSPACE/output/\${{ matrix.label }}"
+          OUT="$GITHUB_WORKSPACE/output/${{ matrix.label }}"
           BUILD_INDEX=0
           BUILD_FAILURES=0
           while IFS= read -r PROJECT_ROOT; do
@@ -104,10 +104,10 @@ jobs:
             if [ -f ./gradlew ]; then
               chmod +x ./gradlew
               ./gradlew --no-daemon --stacktrace --warning-mode=all assembleDebug 2>&1 | tee -a "$LOG"
-              RESULT=\${PIPESTATUS[0]}
+              RESULT=${PIPESTATUS[0]}
             else
               gradle --no-daemon --stacktrace --warning-mode=all assembleDebug 2>&1 | tee -a "$LOG"
-              RESULT=\${PIPESTATUS[0]}
+              RESULT=${PIPESTATUS[0]}
             fi
             if [ "$RESULT" -ne 0 ]; then
               BUILD_FAILURES=$((BUILD_FAILURES + 1))
@@ -131,13 +131,13 @@ jobs:
 
       - name: Record absence of a Gradle project
         if: steps.inspect.outputs.project_found != 'true'
-        run: echo "No Gradle project root found in \${{ matrix.archive }}." > "output/\${{ matrix.label }}/build-summary.txt"
+        run: echo "No Gradle project root found in ${{ matrix.archive }}." > "output/${{ matrix.label }}/build-summary.txt"
 
       - name: Upload APKs and diagnostic reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dayflow-\${{ strategy.job-index }}-apk-and-diagnostics
-          path: output/\${{ matrix.label }}/
+          name: dayflow-${{ strategy.job-index }}-apk-and-diagnostics
+          path: output/${{ matrix.label }}/
           if-no-files-found: warn
           retention-days: 14
