@@ -1,0 +1,143 @@
+name: Build DayFlow Android APKs
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build-dayflow-apks.yml"
+      - "dayflow-android-application-development.zip"
+      - "dayflow-android-application-development (1).zip"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build \${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: DayFlow ZIP 1
+            archive: dayflow-android-application-development.zip
+          - label: DayFlow ZIP 2
+            archive: dayflow-android-application-development (1).zip
+
+    steps:
+      - name: Check out original repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept SDK licenses and install common Android platforms
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-33" "platforms;android-34" "platforms;android-35" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0"
+
+      - name: Set up fallback Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Extract and inspect this ZIP
+        id: inspect
+        shell: bash
+        run: |
+          set -uo pipefail
+          ARCHIVE="\${{ matrix.archive }}"
+          SRC="$RUNNER_TEMP/dayflow-source"
+          OUT="$GITHUB_WORKSPACE/output/\${{ matrix.label }}"
+          mkdir -p "$SRC" "$OUT"
+          if [ ! -f "$GITHUB_WORKSPACE/$ARCHIVE" ]; then
+            echo "Archive not found: $ARCHIVE" | tee "$OUT/inspection.txt"
+            echo "project_found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          unzip -q "$GITHUB_WORKSPACE/$ARCHIVE" -d "$SRC"
+          {
+            echo "Archive: $ARCHIVE"
+            echo
+            echo "Top-level contents:"
+            find "$SRC" -mindepth 1 -maxdepth 3 -printf '%y %p\n' | head -250
+            echo
+            echo "Android manifests:"
+            find "$SRC" -type f -name AndroidManifest.xml -print
+            echo
+            echo "Gradle settings/build files:"
+            find "$SRC" -type f \( -name 'settings.gradle' -o -name 'settings.gradle.kts' -o -name 'build.gradle' -o -name 'build.gradle.kts' -o -name 'gradlew' \) -print
+          } | tee "$OUT/inspection.txt"
+
+          mapfile -t ROOTS < <(find "$SRC" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -printf '%h\n' | sort -u)
+          if [ "\${#ROOTS[@]}" -eq 0 ]; then
+            mapfile -t ROOTS < <(find "$SRC" -type f \( -name build.gradle -o -name build.gradle.kts \) -printf '%h\n' | sort -u)
+          fi
+          printf '%s\n' "\${ROOTS[@]}" > "$OUT/project-roots.txt"
+          if [ "\${#ROOTS[@]}" -gt 0 ]; then
+            echo "project_found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "project_found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build all detected Android Gradle projects
+        if: steps.inspect.outputs.project_found == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+          OUT="$GITHUB_WORKSPACE/output/\${{ matrix.label }}"
+          BUILD_INDEX=0
+          BUILD_FAILURES=0
+          while IFS= read -r PROJECT_ROOT; do
+            [ -n "$PROJECT_ROOT" ] || continue
+            BUILD_INDEX=$((BUILD_INDEX + 1))
+            LOG="$OUT/build-$BUILD_INDEX.log"
+            echo "===== Project $BUILD_INDEX: $PROJECT_ROOT =====" | tee -a "$LOG"
+            cd "$PROJECT_ROOT"
+            if [ -f ./gradlew ]; then
+              chmod +x ./gradlew
+              ./gradlew --no-daemon --stacktrace --warning-mode=all assembleDebug 2>&1 | tee -a "$LOG"
+              RESULT=\${PIPESTATUS[0]}
+            else
+              gradle --no-daemon --stacktrace --warning-mode=all assembleDebug 2>&1 | tee -a "$LOG"
+              RESULT=\${PIPESTATUS[0]}
+            fi
+            if [ "$RESULT" -ne 0 ]; then
+              BUILD_FAILURES=$((BUILD_FAILURES + 1))
+              echo "BUILD_RESULT=FAILED (exit $RESULT)" | tee -a "$LOG"
+            else
+              echo "BUILD_RESULT=SUCCESS" | tee -a "$LOG"
+            fi
+            while IFS= read -r -d '' APK; do
+              cp "$APK" "$OUT/project-$BUILD_INDEX-$(basename "$APK")"
+            done < <(find . -type f -path '*/build/outputs/apk/*/*.apk' -print0)
+          done < "$OUT/project-roots.txt"
+          echo "Detected Gradle roots: $BUILD_INDEX" | tee "$OUT/build-summary.txt"
+          echo "Failed builds: $BUILD_FAILURES" | tee -a "$OUT/build-summary.txt"
+          find "$OUT" -type f -name '*.apk' -printf '%p (%s bytes)\n' | tee -a "$OUT/build-summary.txt"
+          if [ "$BUILD_INDEX" -eq 0 ]; then
+            echo "No Gradle build roots were found." | tee -a "$OUT/build-summary.txt"
+          fi
+          if [ "$BUILD_FAILURES" -gt 0 ]; then
+            exit 1
+          fi
+
+      - name: Record absence of a Gradle project
+        if: steps.inspect.outputs.project_found != 'true'
+        run: echo "No Gradle project root found in \${{ matrix.archive }}." > "output/\${{ matrix.label }}/build-summary.txt"
+
+      - name: Upload APKs and diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dayflow-\${{ strategy.job-index }}-apk-and-diagnostics
+          path: output/\${{ matrix.label }}/
+          if-no-files-found: warn
+          retention-days: 14
