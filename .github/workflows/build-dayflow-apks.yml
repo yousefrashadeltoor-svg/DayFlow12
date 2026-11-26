@@ -122,6 +122,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          set +e
           OUT="$GITHUB_WORKSPACE/output/${{ matrix.label }}"
           BUILD_INDEX=0
           BUILD_FAILURES=0
@@ -131,6 +132,12 @@ jobs:
             LOG="$OUT/build-$BUILD_INDEX.log"
             echo "===== Project $BUILD_INDEX: $PROJECT_ROOT =====" | tee -a "$LOG"
             APP_ROOT="$(dirname "$PROJECT_ROOT")"
+            DECOR_GALLERY="$APP_ROOT/src/features/decor/DecorGallery.tsx"
+            if [ -f "$DECOR_GALLERY" ] && grep -qF "import { Orn, Particles, HangingOrnaments } from './Decor';" "$DECOR_GALLERY"; then
+              sed -i "s/import { Orn, Particles, HangingOrnaments } from .\/Decor.;/import { Orn, Particles } from .\/Decor.;/" "$DECOR_GALLERY"
+              echo "Applied no-UI TypeScript cleanup: removed unused HangingOrnaments import." | tee -a "$LOG"
+            fi
+            if [ -f "$APP_ROOT/package.json" ]; then
             if [ -f "$APP_ROOT/package.json" ]; then
               echo "Preparing web assets and Capacitor Android project from $APP_ROOT" | tee -a "$LOG"
               cd "$APP_ROOT"
