@@ -55,6 +55,16 @@ if compose.count(old_row) != 1:
     raise SystemExit(f"Expected exactly one malformed task-card block, found {compose.count(old_row)}")
 compose = compose.replace(old_row, new_row, 1)
 
+# Close the SettingsModule LazyColumn and function scopes before the next top-level screen.
+settings_boundary = "\\n}\\n\\n@Composable\\nprivate fun CalendarModule("
+if compose.count(settings_boundary) != 1:
+    raise SystemExit(f"Expected one SettingsModule/CalendarModule boundary, found {compose.count(settings_boundary)}")
+compose = compose.replace(
+    settings_boundary,
+    "\\n}\\n}\\n}\\n\\n@Composable\\nprivate fun CalendarModule(",
+    1,
+)
+
 android = root / "android"
 app = android / "app"
 java = app / "src/main/java/com/dayflow/app"
