@@ -1,0 +1,75 @@
+name: Build DayFlow Native Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [native-compose-migration]
+    paths:
+      - ".github/workflows/build-dayflow-native.yml"
+      - ".github/scripts/native-compose/**"
+
+permissions:
+  contents: read
+
+jobs:
+  native-android:
+    name: Native Compose APK (small ZIP only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Extract and migrate the smaller project only
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/dayflow-source"
+          mkdir -p "$SRC" output
+          unzip -q "dayflow-android-application-development (1).zip" -d "$SRC"
+          PATCH_DIR="$GITHUB_WORKSPACE/.github/scripts/dayflow-patch"
+          {
+            head -c 5000 "$PATCH_DIR/part-01.b64"
+            cat "$PATCH_DIR/part-02.b64" "$PATCH_DIR/part-03.b64" "$PATCH_DIR/part-04.b64" "$PATCH_DIR/part-05a.b64" "$PATCH_DIR/part-05b.b64" "$PATCH_DIR/part-06.b64"
+          } | base64 -d | gzip -d > "$RUNNER_TEMP/dayflow-patch.py"
+          python3 "$RUNNER_TEMP/dayflow-patch.py" "$SRC"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/native-compose/migrate.py" "$SRC" "$GITHUB_WORKSPACE/.github/scripts/native-compose/NativeDayflowApp.kt.gz.b64"
+          (cd "$SRC" && zip -qr "$GITHUB_WORKSPACE/output/DayFlow-Native-source.zip" .)
+      - name: Verify native-only Android entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/dayflow-source"
+          ! grep -R -n -E 'BridgeActivity|com\.getcapacitor|DayflowNativePlugin|WebView' "$SRC/android/app/src/main" "$SRC/android/app/build.gradle" "$SRC/android/settings.gradle"
+          test -f "$SRC/android/app/src/main/java/com/dayflow/app/ui/NativeDayflowApp.kt"
+          test ! -e "$SRC/android/app/src/main/assets/public/index.html"
+          echo "NATIVE_ENTRYPOINT_AUDIT=PASS"
+      - name: Run Android unit tests and assemble APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dayflow-source/android"
+          gradle --no-daemon --stacktrace --warning-mode=all :app:testDebugUnitTest :app:assembleDebug 2>&1 | tee "$GITHUB_WORKSPACE/output/native-build.log"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/output/DayFlow-Native-Debug.apk"
+          sha256sum "$GITHUB_WORKSPACE/output/DayFlow-Native-Debug.apk" | tee "$GITHUB_WORKSPACE/output/apk-sha256.txt"
+          unzip -l "$GITHUB_WORKSPACE/output/DayFlow-Native-Debug.apk" | tee "$GITHUB_WORKSPACE/output/apk-contents.txt"
+      - name: Upload APK, source and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dayflow-native-compose-apk-and-source
+          path: output/
+          if-no-files-found: warn
+          retention-days: 14
