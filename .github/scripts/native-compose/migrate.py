@@ -84,8 +84,9 @@ root_text = root_gradle.read_text(encoding="utf-8")
 if "compose-compiler-gradle-plugin" not in root_text:
     root_text = root_text.replace(
         'classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"',
-        'classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"\n        classpath "org.jetbrains.kotlin:compose-compiler-gradle-plugin:$kotlin_version"'
+        'classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"\n        classpath "org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:$kotlin_version"'
     )
+root_text = root_text.replace("        google()\n        mavenCentral()", "        google()\n        gradlePluginPortal()\n        mavenCentral()")
 root_gradle.write_text(root_text, encoding="utf-8")
 
 app_gradle = app / "build.gradle"
