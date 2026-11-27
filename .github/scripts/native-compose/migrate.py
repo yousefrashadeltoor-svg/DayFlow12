@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Convert the Android host to native Compose while retaining existing Android services."""
+from __future__ import annotations
+import base64, gzip, re, shutil, sys
+from pathlib import Path
+
+if len(sys.argv) != 3:
+    raise SystemExit("usage: migrate.py <source> <compose-b64>")
+root = Path(sys.argv[1]).resolve()
+payload = Path(sys.argv[2]).read_text(encoding="ascii").strip()
+try:
+    compose = gzip.decompress(base64.b64decode(payload, validate=True)).decode("utf-8")
+except Exception as exc:
+    raise SystemExit(f"Compose payload decode failed: {exc}")
+
+android = root / "android"
+app = android / "app"
+java = app / "src/main/java/com/dayflow/app"
+ui = java / "ui"
+ui.mkdir(parents=True, exist_ok=True)
+(ui / "NativeDayflowApp.kt").write_text(compose, encoding="utf-8")
+
+main = '''package com.dayflow.app
+import android.content.Intent
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
+import androidx.core.view.WindowCompat
+import com.dayflow.app.alarm.ActivityActions
+import com.dayflow.app.alarm.AlarmScheduler
+import com.dayflow.app.alarm.NotificationHelper
+import com.dayflow.app.ui.NativeDayflowApp
+
+class MainActivity : ComponentActivity() {
+    private val requestedScreen = mutableStateOf<String?>(null)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        NotificationHelper.createChannels(this)
+        AlarmScheduler.prune(this)
+        handleLaunch(intent)
+        setContent { NativeDayflowApp(initialScreen = requestedScreen.value) }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLaunch(intent)
+    }
+    private fun handleLaunch(intent: Intent?) {
+        val key = intent?.getStringExtra("alarmKey")
+        val blockId = intent?.getStringExtra("openBlockId")
+        val screen = intent?.getStringExtra("openScreen")
+        if (!key.isNullOrEmpty()) Thread {
+            runCatching { ActivityActions.apply(this, "DISMISS", key, blockId, "app") }
+        }.start()
+        requestedScreen.value = when {
+            !screen.isNullOrBlank() -> screen
+            !blockId.isNullOrBlank() -> "today"
+            else -> requestedScreen.value
+        }
+    }
+}
+'''
+(java / "MainActivity.kt").write_text(main, encoding="utf-8")
+
+receivers = java / "alarm/Receivers.kt"
+text = receivers.read_text(encoding="utf-8")
+text = text.replace("import com.dayflow.app.plugin.DayflowNativePlugin\n", "")
+text = re.sub(r"^\s*DayflowNativePlugin\.emitDataChanged\(\)\s*\n", "", text, flags=re.M)
+if "DayflowNativePlugin" in text:
+    raise SystemExit("A Capacitor event reference remains in Receivers.kt")
+receivers.write_text(text, encoding="utf-8")
+
+root_gradle = android / "build.gradle"
+root_text = root_gradle.read_text(encoding="utf-8")
+if "compose-compiler-gradle-plugin" not in root_text:
+    root_text = root_text.replace(
+        'classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"',
+        'classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"\n        classpath "org.jetbrains.kotlin:compose-compiler-gradle-plugin:$kotlin_version"'
+    )
+root_gradle.write_text(root_text, encoding="utf-8")
+
+app_gradle = app / "build.gradle"
+app_text = app_gradle.read_text(encoding="utf-8")
+app_text = app_text.replace("apply plugin: 'kotlin-android'", "apply plugin: 'kotlin-android'\napply plugin: 'org.jetbrains.kotlin.plugin.compose'")
+app_text = app_text.replace("        buildConfig true", "        buildConfig true\n        compose true")
+app_text = re.sub(r"\nrepositories\s*\{\s*flatDir\s*\{.*?\n\}\s*\n", "\n", app_text, flags=re.S)
+app_text = app_text.replace("    implementation project(':capacitor-android')\n", "")
+app_text = app_text.replace("    implementation project(':capacitor-cordova-android-plugins')\n", "")
+app_text = app_text.replace("\napply from: 'capacitor.build.gradle'\n", "\n")
+deps = '''
+    implementation platform("androidx.compose:compose-bom:2025.05.01")
+    implementation "androidx.activity:activity-compose:1.10.1"
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.ui:ui-tooling-preview"
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.compose.material:material-icons-extended"
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.9.0"
+    debugImplementation "androidx.compose.ui:ui-tooling"
+    debugImplementation "androidx.compose.ui:ui-test-manifest"
+'''
+if "androidx.compose:compose-bom" not in app_text:
+    app_text = app_text.replace("dependencies {", "dependencies {" + deps, 1)
+if any(x in app_text for x in ("capacitor-android", "capacitor-cordova", "capacitor.build.gradle")):
+    raise SystemExit("Capacitor dependency remains in app/build.gradle")
+app_gradle.write_text(app_text, encoding="utf-8")
+(android / "settings.gradle").write_text("include ':app'\n", encoding="utf-8")
+
+shutil.rmtree(java / "plugin", ignore_errors=True)
+for rel in (
+    "capacitor-cordova-android-plugins", "app/capacitor.build.gradle", "capacitor.settings.gradle",
+    "app/src/main/assets/public", "app/src/main/assets/capacitor.config.json",
+    "app/src/main/assets/capacitor.plugins.json", "app/src/main/res/layout/activity_main.xml"
+):
+    p = android / rel
+    if p.is_dir(): shutil.rmtree(p)
+    elif p.exists(): p.unlink()
+assets = app / "src/main/assets"
+if assets.exists() and not any(assets.iterdir()): assets.rmdir()
+
+manifest = app / "src/main/AndroidManifest.xml"
+m = manifest.read_text(encoding="utf-8")
+m = m.replace("<!-- WebView (local assets only; no network services are contacted by the core app) -->",
+              "<!-- Network access is used only for a user-configured external AI provider. -->")
+m = re.sub(r'\s+android:configChanges="[^"]*"', "", m, count=1)
+manifest.write_text(m, encoding="utf-8")
+
+test = app / "src/test/java/com/dayflow/app/NativeLogicTest.kt"
+if test.exists():
+    t = test.read_text(encoding="utf-8")
+    old = 'PrayerEngine.KEYS.associateWith { 0 }, 10, true, true, "", null, 0.9, true)'
+    new = 'PrayerEngine.KEYS.associateWith { 0 }, 10, true, true, "", null, null, 0.9, true)'
+    if old in t: test.write_text(t.replace(old, new), encoding="utf-8")
+    elif new not in t: raise SystemExit("Unexpected PrayerEngine.Cfg test fixture")
+
+for p in (app / "src/main").rglob("*.kt"):
+    if p.name == "NativeDayflowApp.kt": continue
+    s = p.read_text(encoding="utf-8")
+    if any(x in s for x in ("BridgeActivity", "com.getcapacitor", "DayflowNativePlugin")):
+        raise SystemExit(f"Capacitor code remains: {p.relative_to(root)}")
+for p in (app_gradle, android / "settings.gradle"):
+    if "capacitor" in p.read_text(encoding="utf-8").lower():
+        raise SystemExit(f"Capacitor Gradle setting remains: {p.relative_to(root)}")
+print("NATIVE_COMPOSE_MIGRATION_APPLIED")
+print(f"Compose UI source: {len(compose.encode('utf-8'))} bytes")
+print("Preserved native SQLite, alarm engine, receivers, audio service, notifications, backup and AppWidgets")
