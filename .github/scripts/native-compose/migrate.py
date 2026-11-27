@@ -26,7 +26,7 @@ if scroll_import not in compose:
     raise SystemExit("Expected Compose keyboard import was not found")
 compose = compose.replace(
     scroll_import,
-    scroll_import + "\\nimport androidx.compose.foundation.rememberScrollState\\nimport androidx.compose.foundation.verticalScroll",
+    scroll_import + "\nimport androidx.compose.foundation.rememberScrollState\nimport androidx.compose.foundation.verticalScroll",
     1,
 )
 old_row = r'''            CardSurface(p, Modifier.fillMaxWidth()) { Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(primary, color = p.ink, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis); if (secondary.isNotBlank()) Text(secondary, color = p.ink3, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }; if (route == "tasks") { Checkbox(checked = str(rec, "status") == "done", onCheckedChange = { done -> onSave(mapping, JSONObject(rec.toString()).put("status", if (done) "done" else "todo").put("completedAt", if (done) System.currentTimeMillis() else JSONObject.NULL)) } } } }'''
