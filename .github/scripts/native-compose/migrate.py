@@ -20,6 +20,41 @@ try:
 except Exception as exc:
     raise SystemExit(f"Compose payload decode failed: {exc}")
 
+# Repair the Compose collection-card nesting and import scroll APIs used by dialogs.
+scroll_import = "import androidx.compose.foundation.text.KeyboardOptions"
+if scroll_import not in compose:
+    raise SystemExit("Expected Compose keyboard import was not found")
+compose = compose.replace(
+    scroll_import,
+    scroll_import + "\\nimport androidx.compose.foundation.rememberScrollState\\nimport androidx.compose.foundation.verticalScroll",
+    1,
+)
+old_row = r'''            CardSurface(p, Modifier.fillMaxWidth()) { Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(primary, color = p.ink, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis); if (secondary.isNotBlank()) Text(secondary, color = p.ink3, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }; if (route == "tasks") { Checkbox(checked = str(rec, "status") == "done", onCheckedChange = { done -> onSave(mapping, JSONObject(rec.toString()).put("status", if (done) "done" else "todo").put("completedAt", if (done) System.currentTimeMillis() else JSONObject.NULL)) } } } }'''
+new_row = """            CardSurface(p, Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(primary, color = p.ink, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (secondary.isNotBlank()) {
+                            Text(secondary, color = p.ink3, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    if (route == "tasks") {
+                        Checkbox(
+                            checked = str(rec, "status") == "done",
+                            onCheckedChange = { done ->
+                                val updated = JSONObject(rec.toString())
+                                    .put("status", if (done) "done" else "todo")
+                                    .put("completedAt", if (done) System.currentTimeMillis() else JSONObject.NULL)
+                                onSave(mapping, updated)
+                            }
+                        )
+                    }
+                }
+            }"""
+if compose.count(old_row) != 1:
+    raise SystemExit(f"Expected exactly one malformed task-card block, found {compose.count(old_row)}")
+compose = compose.replace(old_row, new_row, 1)
+
 android = root / "android"
 app = android / "app"
 java = app / "src/main/java/com/dayflow/app"
