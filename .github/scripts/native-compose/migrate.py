@@ -17,6 +17,9 @@ else:
     payload = payload_path.read_text(encoding="ascii").strip()
 try:
     compose = gzip.decompress(base64.b64decode(payload, validate=True)).decode("utf-8")
+except Exception as exc:
+    raise SystemExit(f"Compose payload decode failed: {exc}")
+
 # The appearance SettingLine row is missing its final item-lambda brace. Without it,
 # subsequent item{} calls are parsed inside SettingLine's Composable content lambda.
 appearance_prefix = '            item { SettingLine(if (ar) "مظهر التطبيق" else "Appearance", p) '
@@ -24,8 +27,6 @@ appearance_rows = [line for line in compose.splitlines() if line.startswith(appe
 if len(appearance_rows) != 1:
     raise SystemExit(f"Expected one appearance-setting row, found {len(appearance_rows)}")
 compose = compose.replace(appearance_rows[0], appearance_rows[0] + " }", 1)
-except Exception as exc:
-    raise SystemExit(f"Compose payload decode failed: {exc}")
 
 # Repair the Compose collection-card nesting and import scroll APIs used by dialogs.
 scroll_import = "import androidx.compose.foundation.text.KeyboardOptions"
