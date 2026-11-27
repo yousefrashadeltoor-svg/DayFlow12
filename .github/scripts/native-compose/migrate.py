@@ -17,6 +17,13 @@ else:
     payload = payload_path.read_text(encoding="ascii").strip()
 try:
     compose = gzip.decompress(base64.b64decode(payload, validate=True)).decode("utf-8")
+# The appearance SettingLine row is missing its final item-lambda brace. Without it,
+# subsequent item{} calls are parsed inside SettingLine's Composable content lambda.
+appearance_prefix = '            item { SettingLine(if (ar) "مظهر التطبيق" else "Appearance", p) '
+appearance_rows = [line for line in compose.splitlines() if line.startswith(appearance_prefix)]
+if len(appearance_rows) != 1:
+    raise SystemExit(f"Expected one appearance-setting row, found {len(appearance_rows)}")
+compose = compose.replace(appearance_rows[0], appearance_rows[0] + " }", 1)
 except Exception as exc:
     raise SystemExit(f"Compose payload decode failed: {exc}")
 
@@ -55,15 +62,10 @@ if compose.count(old_row) != 1:
     raise SystemExit(f"Expected exactly one malformed task-card block, found {compose.count(old_row)}")
 compose = compose.replace(old_row, new_row, 1)
 
-# Close the SettingsModule LazyColumn and function scopes before the next top-level screen.
+# Preserve the original top-level SettingsModule/CalendarModule boundary.
 settings_boundary = "\n}\n\n@Composable\nprivate fun CalendarModule("
 if compose.count(settings_boundary) != 1:
     raise SystemExit(f"Expected one SettingsModule/CalendarModule boundary, found {compose.count(settings_boundary)}")
-compose = compose.replace(
-    settings_boundary,
-    "\n}\n}\n}\n\n@Composable\nprivate fun CalendarModule(",
-    1,
-)
 
 android = root / "android"
 app = android / "app"
