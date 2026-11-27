@@ -7,7 +7,14 @@ from pathlib import Path
 if len(sys.argv) != 3:
     raise SystemExit("usage: migrate.py <source> <compose-b64>")
 root = Path(sys.argv[1]).resolve()
-payload = Path(sys.argv[2]).read_text(encoding="ascii").strip()
+payload_path = Path(sys.argv[2])
+if payload_path.is_dir():
+    payload = "".join(
+        (payload_path / f"compose.part{i}.b64").read_text(encoding="ascii").strip()
+        for i in range(1, 6)
+    )
+else:
+    payload = payload_path.read_text(encoding="ascii").strip()
 try:
     compose = gzip.decompress(base64.b64decode(payload, validate=True)).decode("utf-8")
 except Exception as exc:
