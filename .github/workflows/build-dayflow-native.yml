@@ -77,7 +77,7 @@ jobs:
           echo "===== GENERATED COMPOSE LINES 500-565 ====="
           nl -ba "$SRC" | sed -n '500,565p'
           echo "===== SETTINGS MODULE / CALENDAR BOUNDARY ====="
-          grep -n -E 'SettingsModule|CalendarModule|LazyColumn|^ *item\\(' "$SRC" | tail -45
+          grep -n -E "SettingsModule|CalendarModule|LazyColumn|item" "$SRC" | tail -45
       - name: Run Android unit tests and assemble APK
         shell: bash
         run: |
