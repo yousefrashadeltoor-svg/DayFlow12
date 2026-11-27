@@ -43,7 +43,7 @@ jobs:
             cat "$PATCH_DIR/part-02.b64" "$PATCH_DIR/part-03.b64" "$PATCH_DIR/part-04.b64" "$PATCH_DIR/part-05a.b64" "$PATCH_DIR/part-05b.b64" "$PATCH_DIR/part-06.b64"
           } | base64 -d | gzip -d > "$RUNNER_TEMP/dayflow-patch.py"
           python3 "$RUNNER_TEMP/dayflow-patch.py" "$SRC"
-          python3 "$GITHUB_WORKSPACE/.github/scripts/native-compose/migrate.py" "$SRC" "$GITHUB_WORKSPACE/.github/scripts/native-compose/NativeDayflowApp.kt.gz.b64"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/native-compose/migrate.py" "$SRC" "$GITHUB_WORKSPACE/.github/scripts/native-compose"
           (cd "$SRC" && zip -qr "$GITHUB_WORKSPACE/output/DayFlow-Native-source.zip" .)
       - name: Verify native-only Android entry
         shell: bash
