@@ -91,6 +91,7 @@ root_gradle.write_text(root_text, encoding="utf-8")
 app_gradle = app / "build.gradle"
 app_text = app_gradle.read_text(encoding="utf-8")
 app_text = app_text.replace("apply plugin: 'kotlin-android'", "apply plugin: 'kotlin-android'\napply plugin: 'org.jetbrains.kotlin.plugin.compose'")
+app_text = app_text.replace("    kotlinOptions {\n        jvmTarget = '21'\n    }", "    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_21\n        targetCompatibility JavaVersion.VERSION_21\n    }\n\n    kotlinOptions {\n        jvmTarget = '21'\n    }")
 app_text = app_text.replace("        buildConfig true", "        buildConfig true\n        compose true")
 app_text = re.sub(r"\nrepositories\s*\{\s*flatDir\s*\{.*?\n\}\s*\n", "\n", app_text, flags=re.S)
 app_text = app_text.replace("    implementation project(':capacitor-android')\n", "")
