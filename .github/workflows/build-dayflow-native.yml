@@ -69,6 +69,15 @@ jobs:
           test -f "$SRC/android/app/src/main/java/com/dayflow/app/ui/NativeDayflowApp.kt"
           test ! -e "$SRC/android/app/src/main/assets/public/index.html"
           echo "NATIVE_ENTRYPOINT_AUDIT=PASS"
+      - name: Inspect generated Compose Settings scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/dayflow-source/android/app/src/main/java/com/dayflow/app/ui/NativeDayflowApp.kt"
+          echo "===== GENERATED COMPOSE LINES 500-565 ====="
+          nl -ba "$SRC" | sed -n '500,565p'
+          echo "===== SETTINGS MODULE / CALENDAR BOUNDARY ====="
+          grep -n -E 'SettingsModule|CalendarModule|LazyColumn|^ *item\\(' "$SRC" | tail -45
       - name: Run Android unit tests and assemble APK
         shell: bash
         run: |
